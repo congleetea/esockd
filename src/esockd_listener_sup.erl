@@ -43,27 +43,27 @@
 -spec start_link(Protocol, ListenOn, Options, MFArgs) -> {ok, pid()} when
     Protocol  :: atom(),
     ListenOn  :: esockd:listen_on(),
-    Options	  :: [esockd:option()],
+    Options   :: [esockd:option()],
     MFArgs    :: esockd:mfargs().
 start_link(Protocol, ListenOn, Options, MFArgs) ->
     Logger = logger(Options),
     {ok, Sup} = supervisor:start_link(?MODULE, []),
-	{ok, ConnSup} = supervisor:start_child(Sup,
-		{connection_sup,
-			{esockd_connection_sup, start_link, [Options, MFArgs, Logger]},
-				transient, infinity, supervisor, [esockd_connection_sup]}),
+    {ok, ConnSup} = supervisor:start_child(Sup,
+                                           {connection_sup,
+                                            {esockd_connection_sup, start_link, [Options, MFArgs, Logger]},
+                                            transient, infinity, supervisor, [esockd_connection_sup]}),
     AcceptStatsFun = esockd_server:stats_fun({Protocol, ListenOn}, accepted),
     BufferTuneFun = buffer_tune_fun(proplists:get_value(buffer, Options),
-                              proplists:get_value(tune_buffer, Options, false)),
-	{ok, AcceptorSup} = supervisor:start_child(Sup,
-		{acceptor_sup,
-			{esockd_acceptor_sup, start_link, [ConnSup, AcceptStatsFun, BufferTuneFun, Logger]},
-				transient, infinity, supervisor, [esockd_acceptor_sup]}),
-	{ok, _Listener} = supervisor:start_child(Sup,
-		{listener,
-			{esockd_listener, start_link, [Protocol, ListenOn, Options, AcceptorSup, Logger]},
-				transient, 16#ffffffff, worker, [esockd_listener]}),
-	{ok, Sup}.
+                                    proplists:get_value(tune_buffer, Options, false)),
+    {ok, AcceptorSup} = supervisor:start_child(Sup,
+                                               {acceptor_sup,
+                                                {esockd_acceptor_sup, start_link, [ConnSup, AcceptStatsFun, BufferTuneFun, Logger]},
+                                                transient, infinity, supervisor, [esockd_acceptor_sup]}),
+    {ok, _Listener} = supervisor:start_child(Sup,
+                                             {listener,
+                                              {esockd_listener, start_link, [Protocol, ListenOn, Options, AcceptorSup, Logger]},
+                                              transient, 16#ffffffff, worker, [esockd_listener]}),
+    {ok, Sup}.
 
 %% @doc Get connection supervisor.
 connection_sup(Sup) ->

@@ -59,10 +59,12 @@ start_link() ->
       Options  :: [esockd:option()],
       MFArgs   :: esockd:mfargs()).
 child_spec(Protocol, ListenOn, Options, MFArgs) ->
-	{child_id(Protocol, ListenOn),
-        {esockd_listener_sup, start_link,
-            [Protocol, ListenOn, Options, MFArgs]},
-                transient, infinity, supervisor, [esockd_listener_sup]}.
+    {child_id(Protocol, ListenOn),
+     {esockd_listener_sup, start_link, [Protocol, ListenOn, Options, MFArgs]},
+     transient,
+     infinity,
+     supervisor,
+     [esockd_listener_sup]}.
 
 %% @doc Start a Listener.
 -spec(start_listener(Protocol, ListenOn, Options, MFArgs) -> {ok, pid()} | {error, any()} when
@@ -75,18 +77,18 @@ start_listener(Protocol, ListenOn, Options, MFArgs) ->
 
 -spec(start_child(supervisor:child_spec()) -> {ok, pid()} | {error, any()}).
 start_child(ChildSpec) ->
-	supervisor:start_child(?MODULE, ChildSpec).
+    supervisor:start_child(?MODULE, ChildSpec).
 
 %% @doc Stop the listener.
 -spec(stop_listener(atom(), esockd:listen_on()) -> ok | {error, any()}).
 stop_listener(Protocol, ListenOn) ->
     ChildId = child_id(Protocol, ListenOn),
-	case supervisor:terminate_child(?MODULE, ChildId) of
-    ok ->
+    case supervisor:terminate_child(?MODULE, ChildId) of
+        ok ->
         supervisor:delete_child(?MODULE, ChildId);
     {error, Reason} ->
         {error, Reason}
-	end.
+        end.
 
 %% @doc Get Listeners.
 -spec(listeners() -> [{term(), pid()}]).
@@ -107,6 +109,8 @@ listener({Protocol, ListenOn}) ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
+    %% 这里只给出了一个子进程esockd_server的规范， 他是随esockd_sup一起启动的, 而其他要手动启动的就在
+    %% supervisor:start_child的第二个参数里指定子进程规范。
     {ok, {{one_for_one, 10, 100}, [?CHILD(esockd_server, worker)]}}.
 
 %%------------------------------------------------------------------------------
@@ -117,4 +121,3 @@ init([]) ->
 %% @private
 child_id(Protocol, ListenOn) ->
     {listener_sup, {Protocol, ListenOn}}.
-

@@ -82,7 +82,7 @@ start() ->
 %% @doc Open a Listener.
 -spec(open(atom(), listen_on(), [option()], mfargs()) -> {ok, pid()} | {error, any()}).
 open(Protocol, Port, Options, MFArgs) when is_integer(Port) ->
-	esockd_sup:start_listener(Protocol, Port, Options, MFArgs);
+    esockd_sup:start_listener(Protocol, Port, Options, MFArgs);
 
 open(Protocol, {Address, Port}, Options, MFArgs) when is_integer(Port) ->
     {IPAddr, _Port}  = fixaddr({Address, Port}),
@@ -91,7 +91,7 @@ open(Protocol, {Address, Port}, Options, MFArgs) when is_integer(Port) ->
         (OptAddr == undefined) or (OptAddr == IPAddr) -> ok;
         true -> error(badmatch_ipaddress)
     end,
-	esockd_sup:start_listener(Protocol, {IPAddr, Port}, Options, MFArgs).
+    esockd_sup:start_listener(Protocol, {IPAddr, Port}, Options, MFArgs).
 
 %% @doc Child Spec for a Listener.
 -spec(child_spec(atom(), listen_on(), [option()], mfargs()) -> supervisor:child_spec()).

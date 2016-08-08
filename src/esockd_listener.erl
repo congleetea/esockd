@@ -49,7 +49,7 @@
 -spec start_link(Protocol, ListenOn, Options, AcceptorSup, Logger) -> {ok, pid()} | {error, any()} | ignore when 
     Protocol    :: atom(),
     ListenOn    :: esockd:listen_on(),
-    Options	    :: [esockd:option()],
+    Options     :: [esockd:option()],
     AcceptorSup :: pid(),
     Logger      :: gen_logger:logmod().
 start_link(Protocol, ListenOn, Options, AcceptorSup, Logger) ->
@@ -63,10 +63,10 @@ init({Protocol, ListenOn, Options, AcceptorSup, Logger}) ->
     case esockd_transport:listen(Port, [{active, false} | proplists:delete(active, SockOpts)]) of
         {ok, LSock} ->
             SockFun = esockd_transport:ssl_upgrade_fun(proplists:get_value(ssl, Options)),
-			AcceptorNum = proplists:get_value(acceptors, Options, ?ACCEPTOR_POOL),
-			lists:foreach(fun (_) ->
-				{ok, _APid} = esockd_acceptor_sup:start_acceptor(AcceptorSup, LSock, SockFun)
-			end, lists:seq(1, AcceptorNum)),
+            AcceptorNum = proplists:get_value(acceptors, Options, ?ACCEPTOR_POOL),
+            lists:foreach(fun (_) ->
+                                  {ok, _APid} = esockd_acceptor_sup:start_acceptor(AcceptorSup, LSock, SockFun)
+                          end, lists:seq(1, AcceptorNum)),
             {ok, {LIPAddress, LPort}} = inet:sockname(LSock),
             io:format("~s listen on ~s:~p with ~p acceptors.~n",
                       [Protocol, esockd_net:ntoab(LIPAddress), LPort, AcceptorNum]),

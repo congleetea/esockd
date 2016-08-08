@@ -65,6 +65,7 @@
 %%------------------------------------------------------------------------------
 
 %% @doc Start connection supervisor.
+%% 为什么这个supervisor是gen_server启动的?
 -spec start_link(Options, MFArgs, Logger) -> {ok, pid()} | ignore | {error, any()} when
     Options :: [esockd:option()],
     MFArgs  :: esockd:mfargs(),
@@ -114,6 +115,7 @@ call(Sup, Req) ->
 
 init([Options, MFArgs, Logger]) ->
     process_flag(trap_exit, true),
+    %% Options从emqttd的listener配置中得到.
     Shutdown    = proplists:get_value(shutdown, Options, brutal_kill),
     MaxClients  = proplists:get_value(max_clients, Options, ?MAX_CLIENTS),
     ConnOpts    = proplists:get_value(connopts, Options, []),
@@ -131,7 +133,7 @@ handle_call({start_connection, _Sock, _SockFun}, _From,
         when CurrClients >= MaxClients ->
     {reply, {error, maxlimit}, State};
 
-handle_call({start_connection, Sock, SockFun}, _From, 
+handle_call({start_connection, Sock, SockFun}, _From,
             State = #state{conn_opts = ConnOpts, mfargs = MFArgs,
                            curr_clients = Count, access_rules = Rules}) ->
     case inet:peername(Sock) of
@@ -174,9 +176,9 @@ handle_call(access_rules, _From, State = #state{access_rules = Rules}) ->
 
 handle_call({add_rule, RawRule}, _From, State = #state{access_rules = Rules}) ->
     case catch esockd_access:compile(RawRule) of
-        {'EXIT', _Error} -> 
+        {'EXIT', _Error} ->
             {reply, {error, bad_access_rule}, State};
-        Rule -> 
+        Rule ->
             case lists:member(Rule, Rules) of
                 true ->
                     {reply, {error, alread_existed}, State};
@@ -286,7 +288,7 @@ monitor_children() ->
 
 %% Help function to shutdown/2 switches from link to monitor approach
 monitor_child(Pid) ->
-    %% Do the monitor operation first so that if the child dies 
+    %% Do the monitor operation first so that if the child dies
     %% before the monitoring is done causing a 'DOWN'-message with
     %% reason noproc, we will get the real reason in the 'EXIT'-message
     %% unless a naughty child has already done unlink...
@@ -294,28 +296,28 @@ monitor_child(Pid) ->
     unlink(Pid),
 
     receive
-	%% If the child dies before the unlik we must empty
-	%% the mail-box of the 'EXIT'-message and the 'DOWN'-message.
-	{'EXIT', Pid, Reason} -> 
-	    receive 
-		{'DOWN', _, process, Pid, _} ->
-		    {error, Reason}
-	    end
-    after 0 -> 
-	    %% If a naughty child did unlink and the child dies before
-	    %% monitor the result will be that shutdown/2 receives a 
-	    %% 'DOWN'-message with reason noproc.
-	    %% If the child should die after the unlink there
-	    %% will be a 'DOWN'-message with a correct reason
-	    %% that will be handled in shutdown/2. 
-	    ok   
+        %% If the child dies before the unlik we must empty
+        %% the mail-box of the 'EXIT'-message and the 'DOWN'-message.
+        {'EXIT', Pid, Reason} ->
+            receive
+                {'DOWN', _, process, Pid, _} ->
+                    {error, Reason}
+            end
+    after 0 ->
+            %% If a naughty child did unlink and the child dies before
+            %% monitor the result will be that shutdown/2 receives a
+            %% 'DOWN'-message with reason noproc.
+            %% If the child should die after the unlink there
+            %% will be a 'DOWN'-message with a correct reason
+            %% that will be handled in shutdown/2.
+            ok
     end.
 
 wait_children(_Shutdown, _Pids, 0, undefined, EStack) ->
     EStack;
 wait_children(_Shutdown, _Pids, 0, TRef, EStack) ->
-	%% If the timer has expired before its cancellation, we must empty the
-	%% mail-box of the 'timeout'-message.
+    %% If the timer has expired before its cancellation, we must empty the
+    %% mail-box of the 'timeout'-message.
     erlang:cancel_timer(TRef),
     receive
         {timeout, TRef, kill} ->
@@ -361,4 +363,3 @@ report_error(Error, Reason, Pid, #state{mfargs = MFArgs}) ->
 
 del(Pid, Pids) ->
     erase(Pid), ?SETS:del_element(Pid, Pids).
-
