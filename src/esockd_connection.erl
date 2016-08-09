@@ -35,6 +35,7 @@
 -export([transport/1, sock/1, opts/1, type/1, getopts/2, setopts/2, getstat/2,
          controlling_process/2, peername/1, sockname/1]).
 
+%% 这些函数会被emqttd_client.erl中调用， 同时socket得到的消息也会有emqttd_client中接受处理。现在就彻底跑到emqttd中去了。
 -export([send/2, async_send/2, recv/2, recv/3, async_recv/2, async_recv/3,
          shutdown/2, close/1, fast_close/1]).
 
@@ -85,9 +86,14 @@ start_link(M, Conn = ?CONN_MOD) when is_atom(M) ->
 start_link({M, F}, Conn = ?CONN_MOD) when is_atom(M), is_atom(F) ->
     M:F(Conn);
 
+%% conglistener9: 为连接的客户端启动一个进程(占用的两个进程中的一个)
+%% 对于mqtt和http走两个方向，先看mqtt的，conglistener9mqtt_0, jump to emqttd_client:start_link/1
+%% 再看 conglistener9http_0: jump to mochiweb_http:start_link,参数MFA=[{emqttd_http,handle_request,[]}].
+%% for mqtt(s):MFArgs={emqttd_client,start_link, Opts}
+%% for http(s):MFArgs={mochiweb_http,start_link,[{emqttd_http,handle_request,[]}]}, emqttd_http:handle_request将作为mochi端的回调。
 start_link({M, F, Args}, Conn = ?CONN_MOD)
     when is_atom(M), is_atom(F), is_list(Args) ->
-    erlang:apply(M, F, [Conn|Args]).
+    erlang:apply(M, F, [Conn|Args]).            % 到此connection的Pid其实都还没有生成，所以如果在高函数前面打印self()依然还是acceptor的。
 
 %% @doc Tell the connection proccess that socket is ready. Called by acceptor.
 -spec go(pid(), connection()) -> any().
@@ -99,11 +105,12 @@ go(Pid, Conn = ?CONN_MOD) ->
 %% @end
 -spec wait(connection()) -> {ok, connection()}.
 wait(Conn = ?CONN_MOD) ->
-	receive {go, Conn} -> upgrade(Conn) end.
+    receive {go, Conn} -> upgrade(Conn) end.
 
 %% @doc Upgrade Socket.
 %%      Called by connection proccess.
 %% @end
+%% 为什么要upgrade？
 -spec upgrade(connection()) -> {ok, connection()}.
 upgrade({?MODULE, [Sock, SockFun, Opts]}) ->
     case SockFun(Sock) of
@@ -118,7 +125,7 @@ upgrade({?MODULE, [Sock, SockFun, Opts]}) ->
 transport({?MODULE, [_Sock, _SockFun, _Opts]}) ->
     ?Transport.
 
-%% @doc Socket of the connection. 
+%% @doc Socket of the connection.
 -spec sock(connection()) -> inet:socket() | esockd:ssl_socket().
 sock({?MODULE, [Sock, _SockFun, _Opts]}) ->
     Sock.
@@ -203,4 +210,3 @@ close(?CONN_MOD(Sock)) ->
 -spec fast_close(connection()) -> ok.
 fast_close(?CONN_MOD(Sock)) ->
     ?Transport:fast_close(Sock).
-

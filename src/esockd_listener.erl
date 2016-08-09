@@ -46,7 +46,7 @@
 -define(ACCEPTOR_POOL, 16).
 
 %% @doc Start Listener
--spec start_link(Protocol, ListenOn, Options, AcceptorSup, Logger) -> {ok, pid()} | {error, any()} | ignore when 
+-spec start_link(Protocol, ListenOn, Options, AcceptorSup, Logger) -> {ok, pid()} | {error, any()} | ignore when
     Protocol    :: atom(),
     ListenOn    :: esockd:listen_on(),
     Options     :: [esockd:option()],
@@ -54,16 +54,26 @@
     Logger      :: gen_logger:logmod().
 start_link(Protocol, ListenOn, Options, AcceptorSup, Logger) ->
     gen_server:start_link(?MODULE, {Protocol, ListenOn, Options, AcceptorSup, Logger}, []).
-
+%% conglistener0: 现在开始启动listener
 init({Protocol, ListenOn, Options, AcceptorSup, Logger}) ->
     Port = port(ListenOn),
     process_flag(trap_exit, true),
     %%Don't active the socket...
+    %% {reuseaddr,true}表示多个实例可重用一个端口(比如关闭emqttd，端口会进入四次断开的流程，这个端口可能会稍晚一会才
+    %% 关闭(socket状态会变为TIME_WAIT, 此时没有完全关闭)，如果此时重启emqttd，该参数若为false，就会提示端口被占用).
+    %% 如果被设置为true，则当linux内核返回TIME_WAIT的时候就可以复用监听.
     SockOpts = merge_addr(ListenOn, proplists:get_value(sockopts, Options, [{reuseaddr, true}])),
+    %% {active,false}将socket设置为被动接收，这样不会出现大量连接一下子压过来，服务器处理速度分不上的情况.
+    %% conglistener1: 设置好socket的配置，esockd_transport:listen调用gen_tcp:listen(Port, SockOpts)监听端口.
     case esockd_transport:listen(Port, [{active, false} | proplists:delete(active, SockOpts)]) of
+        %% 返回监听Socket，这个socket是不能断开的，断开客户端就无法连接了。
         {ok, LSock} ->
+            %% 带上ssl证书和秘钥,将tcp变为ssl(如果ssl有配置).
             SockFun = esockd_transport:ssl_upgrade_fun(proplists:get_value(ssl, Options)),
+            %% acceptor_pool有emqttdlistener中配置.
             AcceptorNum = proplists:get_value(acceptors, Options, ?ACCEPTOR_POOL),
+            %% conglistener2 依次启动acceptors，受监督于esockd_acceptor_sup,
+            %% (注意携带了两个参数，一个是LSock, 另一个是SockFun) jump...
             lists:foreach(fun (_) ->
                                   {ok, _APid} = esockd_acceptor_sup:start_acceptor(AcceptorSup, LSock, SockFun)
                           end, lists:seq(1, AcceptorNum)),
@@ -102,8 +112,7 @@ terminate(_Reason, #state{protocol = Protocol, listen_on = ListenOn, lsock = LSo
               [Protocol, esockd_net:ntoab(IPAddress), Port]),
     %%TODO: depend on esockd_server?
     esockd_server:del_stats({Protocol, ListenOn}),
-	ok.
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-

@@ -29,7 +29,7 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include("esockd.hrl").
+-include("../include/esockd.hrl").
 
 -behaviour(gen_server).
 
@@ -62,9 +62,17 @@ start_link(ConnSup, AcceptStatsFun, BufTuneFun, Logger, LSock, SockFun) ->
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
-
+%% conglistener4: 由于生成accept是一个耗时操作，所以通过gen_server:cast发送出去，让耗时操作在handle_cast中去执行.
+%% 这个操作类似在init返回中加入第三个参数0，立刻发送一个timeout的带外消息，把费时操作放到handle_info(timeout,..)
+%% 中去执行是一样的原理.
 init({ConnSup, AcceptStatsFun, BufferTuneFun, Logger, LSock, SockFun}) ->
+    %% 解析出socket的ip和port.
     {ok, SockName} = inet:sockname(LSock),
+    %% 向自己发送一个accept的异步信息(调用prim_inet:async_accept异步accept), 然后执行后面的步骤返回.
+    %% 至此，acceptor就启动完成了, 启动emqttd之后，会启动多个acceptor来接收端口来的消息, 同时esockd_listener的
+    %% 工作也完成了, 接下来端口如果有消息到的话，就会有handle_info({})来处理.
+    %% accept(State)调用prim_inet:async_accept(LSock,-1)这个过程其实就相当于这个acceptor进程(emqttd是设置了启动多个)
+    %% 去从监听socket(LSock)那里抢客户端连接一样(众多的acceptor去从端口抢)。
     gen_server:cast(self(), accept),
     {ok, #state{lsock    = LSock,
                 sockfun  = SockFun,
@@ -83,6 +91,8 @@ handle_cast(accept, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+%% conglistener5: accept到客户端的socket连接, 然后启动一个esockd_connection子进程(受监督于esockd_connnection_sup)，
+%% 最后会把这个socket的控制权从acceptor转走，这样这个acceptor就腾出来处理其他的客户端连接了.
 handle_info({inet_async, LSock, Ref, {ok, Sock}}, State = #state{lsock    = LSock,
                                                                  sockfun  = SockFun,
                                                                  tunefun  = BufferTuneFun,
@@ -93,17 +103,24 @@ handle_info({inet_async, LSock, Ref, {ok, Sock}}, State = #state{lsock    = LSoc
                                                                  ref      = Ref}) ->
 
     %% patch up the socket so it looks like one we got from gen_tcp:accept/1
+    %% 修补socket，使其看起来像是从gen_tcp:accept/1得到的一样.
     {ok, Mod} = inet_db:lookup_socket(LSock),
     inet_db:register_socket(Sock, Mod),
 
     %% accepted stats.
+    %% AcceptStatsFun is esockd_server:stats_fun({Protocol, ListenOn}, accepted), 统计socket数量+1
     AcceptStatsFun({inc, 1}),
 
     %% Fix issues#9: enotconn error occured...
-	%% {ok, Peername} = inet:peername(Sock),
+    %% {ok, Peername} = inet:peername(Sock),
     %% Logger:info("~s - Accept from ~s", [SockName, esockd_net:format(peername, Peername)]),
-    case BufferTuneFun(Sock) of
+    case BufferTuneFun(Sock) of                 % 调整客户端socket的buffer大小.
         ok ->
+            %% conglistener6: 该acceptor抢到连接之后，启动一个esockd_connection进程，把socket控制权交给它,
+            %% acceptor完成之后就去从端口抢.
+            %% 注意，esockd_connection_sup:start_connection启动connection是使用同步启动的，也就是一定要得到
+            %% 启动的结果成功与否才会返回. 如果启动失败就把相应的Sock关闭.
+            %% jump.....
             case esockd_connection_sup:start_connection(ConnSup, Mod, Sock, SockFun) of
                 {ok, _Pid}        -> ok;
                 {error, enotconn} -> catch port_close(Sock); %% quiet...issue #10
@@ -111,12 +128,14 @@ handle_info({inet_async, LSock, Ref, {ok, Sock}}, State = #state{lsock    = LSoc
                                      Logger:error("Failed to start connection on ~s - ~p", [SockName, Reason])
             end;
         {error, enotconn} ->
-			catch port_close(Sock);
+            catch port_close(Sock);
         {error, Err} ->
             Logger:error("failed to tune buffer size of connection accepted on ~s - ~s", [SockName, Err]),
             catch port_close(Sock)
     end,
     %% accept more
+    %% 这个进程抢到了一个客户端的连接，启动一个connection，交给它处理，然后又去LSock哪里抢了, acceptor负责的其实
+    %% 就是从LSock抢过来启动一个connection，把控制权交给它就完成任务了。
     accept(State);
 
 handle_info({inet_async, LSock, Ref, {error, closed}},
@@ -138,9 +157,9 @@ handle_info({inet_async, LSock, Ref, {error, esslaccept}},
 %% async accept errors...
 %% {error, timeout} ->
 %% {error, e{n,m}file} -> suspend 100??
-handle_info({inet_async, LSock, Ref, {error, Error}}, 
+handle_info({inet_async, LSock, Ref, {error, Error}},
             State=#state{lsock = LSock, ref = Ref}) ->
-	sockerr(Error, State);
+    sockerr(Error, State);
 
 handle_info(resume, State) ->
     accept(State);
@@ -159,11 +178,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 accept(State = #state{lsock = LSock}) ->
+    %% 这里使用异步accept，如果使用gen_tcp:accept则是阻塞的。
     case prim_inet:async_accept(LSock, -1) of
-        {ok, Ref} -> 
-			{noreply, State#state{ref = Ref}};
-		{error, Error} ->
-			sockerr(Error, State)
+        {ok, Ref} ->
+            {noreply, State#state{ref = Ref}};
+        {error, Error} ->
+            sockerr(Error, State)
     end.
 
 %%--------------------------------------------------------------------
@@ -171,26 +191,25 @@ accept(State = #state{lsock = LSock}) ->
 %%--------------------------------------------------------------------
 %% emfile: The per-process limit of open file descriptors has been reached.
 sockerr(emfile, State = #state{sockname = SockName, emfile_count = Count, logger = Logger}) ->
-	%%avoid too many error log.. stupid??
-	case Count rem 100 of 
+    %%avoid too many error log.. stupid??
+    case Count rem 100 of
         0 -> Logger:error("acceptor on ~s suspend 100(ms) for ~p emfile errors!!!", [SockName, Count]);
         _ -> ignore
-	end,
-	suspend(100, State#state{emfile_count = Count+1});
+    end,
+    suspend(100, State#state{emfile_count = Count+1});
 
 %% enfile: The system limit on the total number of open files has been reached. usually OS's limit.
 sockerr(enfile, State = #state{sockname = SockName, logger = Logger}) ->
-	Logger:error("accept error on ~s - !!!enfile!!!", [SockName]),
-	suspend(100, State);
+    Logger:error("accept error on ~s - !!!enfile!!!", [SockName]),
+    suspend(100, State);
 
 sockerr(Error, State = #state{sockname = SockName, logger = Logger}) ->
-	Logger:error("accept error on ~s - ~s", [SockName, Error]),
-	{stop, {accept_error, Error}, State}.
+    Logger:error("accept error on ~s - ~s", [SockName, Error]),
+    {stop, {accept_error, Error}, State}.
 
 %%--------------------------------------------------------------------
 %% suspend for a while...
 %%--------------------------------------------------------------------
 suspend(Time, State) ->
     erlang:send_after(Time, self(), resume),
-	{noreply, State#state{ref=undefined}, hibernate}.
-
+    {noreply, State#state{ref=undefined}, hibernate}.

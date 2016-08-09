@@ -74,11 +74,18 @@ start_link(Options, MFArgs, Logger) ->
     gen_server:start_link(?MODULE, [Options, MFArgs, Logger], []).
 
 %% @doc Start connection.
+%% conglistener7: 同步创建一个esockd_connection，esockd_acceptor会等待启动成功与否的结果.
+%% jump to handle_call
 start_connection(Sup, Mod, Sock, SockFun) ->
+    lager:info("~n~p:~p:self()=~p~n", [?MODULE, ?LINE, self()]), % 这个Pid应该是acceptor的Pid.
     case call(Sup, {start_connection, Sock, SockFun}) of
         {ok, Pid, Conn} ->
+            lager:info("~n~p:~p:Pid=~p~n", [?MODULE, ?LINE, Pid]), % 这个Pid才是connection的Pid.
+            %% conglistener10: esockd_connection启动成功之后，这里会把客户端的socket的控制权转交给esockd_connection
             % transfer controlling from acceptor to connection
             Mod:controlling_process(Sock, Pid),
+            %% conglistener11: 通过go函数给Pid(客户端产生的connection)发送go信号, connection(emqttd_client)收到这个信号接着往下走。
+            %% 到此acceptor就彻底把该Sock的控制权交给connection了。
             Conn:go(Pid),
             {ok, Pid};
         {error, Error} ->
@@ -128,6 +135,7 @@ init([Options, MFArgs, Logger]) ->
                 mfargs       = MFArgs,
                 logger       = Logger}}.
 
+%% conglistener8: 在这里限制连接的最大个数。如果超过了就拒绝连接。
 handle_call({start_connection, _Sock, _SockFun}, _From,
             State = #state{curr_clients = CurrClients, max_clients = MaxClients})
         when CurrClients >= MaxClients ->
@@ -138,9 +146,14 @@ handle_call({start_connection, Sock, SockFun}, _From,
                            curr_clients = Count, access_rules = Rules}) ->
     case inet:peername(Sock) of
         {ok, {Addr, _Port}} ->
+            %% 检验相应的IP是否有权限
             case allowed(Addr, Rules) of
                 true ->
+                    %% new返回{esockd_connection, [Sock, SockFun, parse_opt(Opts)]}一个带状态的模块.
                     Conn = esockd_connection:new(Sock, SockFun, ConnOpts),
+                    %% 实际调用的是esockd_connection:start_link(MFArgs, {esockd_connection,[Sock,SockFun,NewOpts]})
+                    %% for mqtt(s):{emqttd_client,start_link, Opts}
+                    %% for http(s):{mochiweb_http,start_link,[{emqttd_http,handle_request,[]}]}
                     case catch Conn:start_link(MFArgs) of
                         {ok, Pid} when is_pid(Pid) ->
                             put(Pid, true),
@@ -153,7 +166,7 @@ handle_call({start_connection, Sock, SockFun}, _From,
                             {reply, {error, What}, State}
                     end;
                 false ->
-                    {reply, {error, fobidden}, State}
+                    {reply, {error, forbidden}, State}
             end;
         {error, Reason} ->
             {reply, {error, Reason}, State}

@@ -53,6 +53,8 @@ start_link(ConnSup, AcceptStatsFun, BufferTuneFun, Logger) ->
       LSock       :: inet:socket(),
       SockFun     :: esockd:sock_fun()).
 start_acceptor(AcceptorSup, LSock, SockFun) ->
+    %% conglistener3: 这里携带了两个参数, 根据init中的ChildSpec启动, 两边的参数会合并。
+    %% 这里在init中有4个参数，本初有带了2个参数，合并之后就是6个参数，jump to esockd_acceptor:start_link/6
     supervisor:start_child(AcceptorSup, [LSock, SockFun]).
 
 %% @doc Count Acceptors.
@@ -68,4 +70,3 @@ init([ConnSup, AcceptStatsFun, BufferTuneFun, Logger]) ->
     {ok, {{simple_one_for_one, 1000, 3600},
           [{acceptor, {esockd_acceptor, start_link, [ConnSup, AcceptStatsFun, BufferTuneFun, Logger]},
             transient, 5000, worker, [esockd_acceptor]}]}}.
-

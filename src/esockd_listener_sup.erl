@@ -55,6 +55,7 @@ start_link(Protocol, ListenOn, Options, MFArgs) ->
     AcceptStatsFun = esockd_server:stats_fun({Protocol, ListenOn}, accepted),
     BufferTuneFun = buffer_tune_fun(proplists:get_value(buffer, Options),
                                     proplists:get_value(tune_buffer, Options, false)),
+    %% 子进程规范里面的第一个元素ConnSup就是上面启动的connection_sup进程。
     {ok, AcceptorSup} = supervisor:start_child(Sup,
                                                {acceptor_sup,
                                                 {esockd_acceptor_sup, start_link, [ConnSup, AcceptStatsFun, BufferTuneFun, Logger]},
@@ -77,7 +78,7 @@ acceptor_sup(Sup) ->
 %% @private
 child_pid(Sup, ChildId) ->
     hd([Pid || {Id, Pid, _, _} <- supervisor:which_children(Sup), Id =:= ChildId]).
-    
+
 %%------------------------------------------------------------------------------
 %% Supervisor callbacks
 %%------------------------------------------------------------------------------
@@ -91,12 +92,12 @@ init([]) ->
 
 %% when 'buffer' is undefined, and 'tune_buffer' is true...
 buffer_tune_fun(undefined, true) ->
-    fun(Sock) -> 
+    fun(Sock) ->
         case inet:getopts(Sock, [sndbuf, recbuf, buffer]) of
-            {ok, BufSizes} -> 
+            {ok, BufSizes} ->
                 BufSz = lists:max([Sz || {_Opt, Sz} <- BufSizes]),
                 inet:setopts(Sock, [{buffer, BufSz}]);
-            Error -> 
+            Error ->
                 Error
         end
     end;
@@ -107,4 +108,3 @@ buffer_tune_fun(_, _) ->
 logger(Options) ->
     {ok, Default} = application:get_env(esockd, logger),
     gen_logger:new(proplists:get_value(logger, Options, Default)).
-
