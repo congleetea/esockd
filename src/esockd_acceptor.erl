@@ -104,7 +104,7 @@ handle_info({inet_async, LSock, Ref, {ok, Sock}}, State = #state{lsock    = LSoc
 
     %% patch up the socket so it looks like one we got from gen_tcp:accept/1
     %% 修补socket，使其看起来像是从gen_tcp:accept/1得到的一样.
-    {ok, Mod} = inet_db:lookup_socket(LSock),
+    {ok, Mod} = inet_db:lookup_socket(LSock),   % {ok, inet_tcp}
     inet_db:register_socket(Sock, Mod),
 
     %% accepted stats.
@@ -121,6 +121,9 @@ handle_info({inet_async, LSock, Ref, {ok, Sock}}, State = #state{lsock    = LSoc
             %% 注意，esockd_connection_sup:start_connection启动connection是使用同步启动的，也就是一定要得到
             %% 启动的结果成功与否才会返回. 如果启动失败就把相应的Sock关闭.
             %% jump.....
+            %% TODO: Mod=inet_tcp,
+            %% Sock 是连接socket
+            %% SockFun处理ssl相关信息。
             case esockd_connection_sup:start_connection(ConnSup, Mod, Sock, SockFun) of
                 {ok, _Pid}        -> ok;
                 {error, enotconn} -> catch port_close(Sock); %% quiet...issue #10
@@ -138,6 +141,7 @@ handle_info({inet_async, LSock, Ref, {ok, Sock}}, State = #state{lsock    = LSoc
     %% 就是从LSock抢过来启动一个connection，把控制权交给它就完成任务了。
     accept(State);
 
+%% TODO: Ref是干什么用的？
 handle_info({inet_async, LSock, Ref, {error, closed}},
             State=#state{lsock=LSock, ref=Ref}) ->
     %% It would be wrong to attempt to restart the acceptor when we
@@ -178,7 +182,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 accept(State = #state{lsock = LSock}) ->
-    %% 这里使用异步accept，如果使用gen_tcp:accept则是阻塞的。
+    %% 这里使用异步accept，如果使用gen_tcp:accept则是阻塞，会在sock哪里等待消息，如果没有消息就汇等待，
+    %% 不得到消息就不返回，这样性能就查了。
     case prim_inet:async_accept(LSock, -1) of
         {ok, Ref} ->
             {noreply, State#state{ref = Ref}};

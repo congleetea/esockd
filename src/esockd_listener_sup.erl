@@ -48,6 +48,10 @@
 start_link(Protocol, ListenOn, Options, MFArgs) ->
     Logger = logger(Options),
     {ok, Sup} = supervisor:start_link(?MODULE, []),
+    %% connect_sup为什么启动的是gen_server类型的。
+    %% 原因是他的子进程是动态通过proc_lib:spawn_link在emqttd_client.erl中启动的，不好设置子进程规范，
+    %% 但是又要实现supervisor的功能，所以在使用spawn_link把子进程和supervisor 链接起来，同时要捕捉EXIT
+    %% 消息，于是设置了process_flag(trap_exit, true), 往后看。
     {ok, ConnSup} = supervisor:start_child(Sup,
                                            {connection_sup,
                                             {esockd_connection_sup, start_link, [Options, MFArgs, Logger]},
@@ -55,11 +59,13 @@ start_link(Protocol, ListenOn, Options, MFArgs) ->
     AcceptStatsFun = esockd_server:stats_fun({Protocol, ListenOn}, accepted),
     BufferTuneFun = buffer_tune_fun(proplists:get_value(buffer, Options),
                                     proplists:get_value(tune_buffer, Options, false)),
-    %% 子进程规范里面的第一个元素ConnSup就是上面启动的connection_sup进程。
+    %% 子进程规范里面的第一个元素ConnSup就是上面启动的connection_sup进程, 作为参数传进来是为了方便消息发送，
+    %% TODO: 为什么需要这个参数: acceptor 会给它发送start_connection的消息，让他启动connection。
     {ok, AcceptorSup} = supervisor:start_child(Sup,
                                                {acceptor_sup,
                                                 {esockd_acceptor_sup, start_link, [ConnSup, AcceptStatsFun, BufferTuneFun, Logger]},
                                                 transient, infinity, supervisor, [esockd_acceptor_sup]}),
+    %% 这里的参数也带了AcceptorSup, 作用是来让他动态启动acceptor。
     {ok, _Listener} = supervisor:start_child(Sup,
                                              {listener,
                                               {esockd_listener, start_link, [Protocol, ListenOn, Options, AcceptorSup, Logger]},

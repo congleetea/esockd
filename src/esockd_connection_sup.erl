@@ -121,11 +121,17 @@ call(Sup, Req) ->
 %%------------------------------------------------------------------------------
 
 init([Options, MFArgs, Logger]) ->
-    process_flag(trap_exit, true),
+    %% 由于这里不是通过supervisor启动的子进程，如果没有下面trap_exit的设置，那么和本进程(connection_sup) link的进程一旦退出，
+    %% 他就不能捕捉这个退出消息，也就不能做特殊的处理，他也会紧随子进程而终止，为防止被终止，设置这个标志，这样connection_sup
+    %% 接受到的消息就会转化为{'EXIT', FromPid, Reason}这种无害消息，避免被终止，其实就是自定义了一个supervisor的行为模式。
+    %% 同时， connection_sup的子进程一旦终止，是不需要重新启动的。
+    %% 我们同时也看到，他的子进程connection是在emqttd_client.erl中通过proc_lib:spawn_link启动的, 这样启动之后会自动和本进程link起来。
+    erlang:process_flag(trap_exit, true),
     %% Options从emqttd的listener配置中得到.
     Shutdown    = proplists:get_value(shutdown, Options, brutal_kill),
     MaxClients  = proplists:get_value(max_clients, Options, ?MAX_CLIENTS),
     ConnOpts    = proplists:get_value(connopts, Options, []),
+    lager:error("~n~p:~p:ConnOpts=~p~n", [?MODULE, ?LINE, ConnOpts]),
     RawRules    = proplists:get_value(access, Options, [{allow, all}]),
     AccessRules = [esockd_access:compile(Rule) || Rule <- RawRules],
     {ok, #state{max_clients  = MaxClients,

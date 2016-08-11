@@ -80,6 +80,7 @@ start() ->
     {ok, _} = application:ensure_all_started(esockd), ok.
 
 %% @doc Open a Listener.
+%% MFArgs 体现的是协议的东西, mqtt(s)是emqttd_client:start_link(Opts), websocket(s)是mochiweb_http:start_link。
 -spec(open(atom(), listen_on(), [option()], mfargs()) -> {ok, pid()} | {error, any()}).
 open(Protocol, Port, Options, MFArgs) when is_integer(Port) ->
     esockd_sup:start_listener(Protocol, Port, Options, MFArgs);
@@ -105,7 +106,7 @@ close({Protocol, ListenOn}) when is_atom(Protocol) ->
 
 -spec(close(atom(), listen_on()) -> ok).
 close(Protocol, ListenOn) when is_atom(Protocol) ->
-	esockd_sup:stop_listener(Protocol, fixaddr(ListenOn)).
+    esockd_sup:stop_listener(Protocol, fixaddr(ListenOn)).
 
 %% @doc Get listeners.
 -spec listeners() -> [{{atom(), listen_on()}, pid()}].
@@ -219,4 +220,3 @@ fixaddr({Addr, Port}) when is_tuple(Addr) and is_integer(Port) ->
         true  -> {Addr, Port};
         false -> error(invalid_ipaddress)
     end.
-

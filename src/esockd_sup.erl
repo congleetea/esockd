@@ -109,7 +109,7 @@ listener({Protocol, ListenOn}) ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    %% 这里只给出了一个子进程esockd_server的规范， 他是随esockd_sup一起启动的, 而其他要手动启动的就在
+    %% 这里只给出了一个子进程esockd_server的规范， 他是随esockd_sup一起启动的, 而其他要动态启动的就在
     %% supervisor:start_child的第二个参数里指定子进程规范。
     {ok, {{one_for_one, 10, 100}, [?CHILD(esockd_server, worker)]}}.
 
