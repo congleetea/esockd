@@ -47,20 +47,32 @@
     MFArgs    :: esockd:mfargs().
 start_link(Protocol, ListenOn, Options, MFArgs) ->
     Logger = logger(Options),
+    %% 启动supervisor的时候可以是三个参数第一个是supervisor的注册名，第二个是module，第三个是参数，
+    %% 这里使用的是两个参数，没有supervisor的注册名，这样supervisor就不会被注册, 在observer中显示的就只有Pid。
+    %% 什么时候会使用不注册supervisor名字呢？ 如果supervisor是动态产生的时候就不必注册名字了，当然也可以选择一个名字注册。
     {ok, Sup} = supervisor:start_link(?MODULE, []),
-    %% connect_sup为什么启动的是gen_server类型的。
+    %% 0) Sup下面的三类子进程的启动顺序有讲究，他是按使用顺序相反启动的，因为启动listener，就会监听，端口的信息需要acceptor处理，
+    %%    所以acceptor要在listener先启动等待使用，connection_sup也是一样的。
+    %% 1) connect_sup为什么启动的是gen_server类型的。
     %% 原因是他的子进程是动态通过proc_lib:spawn_link在emqttd_client.erl中启动的，不好设置子进程规范，
-    %% 但是又要实现supervisor的功能，所以在使用spawn_link把子进程和supervisor 链接起来，同时要捕捉EXIT
-    %% 消息，于是设置了process_flag(trap_exit, true), 往后看。
+    %% 但是又要实现supervisor的功能，所以在使用spawn_link把子进程和supervisor 链接起来，同时要让supervisor(connection_sup)捕捉EXIT
+    %% 消息，于是在启动connection_sup的时候设置了process_flag(trap_exit, true), 这样connection_sup接受到子进程发送的exit退出消息的时候
+    %% 会自动转化为{'EXIT', FromPid, Reason}的无害信号，否则没有trap_exit的设置，父进程也会跟着子进程挂掉。
+    %% 2) 在参数中带了MFArgs参数，这个是用来启动connection_sup下的子进程的。
     {ok, ConnSup} = supervisor:start_child(Sup,
                                            {connection_sup,
                                             {esockd_connection_sup, start_link, [Options, MFArgs, Logger]},
                                             transient, infinity, supervisor, [esockd_connection_sup]}),
+    %% AcceptStatsFun是干什么的?
+    %% AcceptStatsFun执行该函数会让esockd_server进程新建一个ets的统计表，统计各类连接的状况，返回一个增减状态量的函数。
+    %% BufferTuneFun执行该函数可以更改Sock的buffer大小。
     AcceptStatsFun = esockd_server:stats_fun({Protocol, ListenOn}, accepted),
     BufferTuneFun = buffer_tune_fun(proplists:get_value(buffer, Options),
                                     proplists:get_value(tune_buffer, Options, false)),
-    %% 子进程规范里面的第一个元素ConnSup就是上面启动的connection_sup进程, 作为参数传进来是为了方便消息发送，
-    %% TODO: 为什么需要这个参数: acceptor 会给它发送start_connection的消息，让他启动connection。
+    %% 1) 为什么下下面启动的时候都会带上上一次启动的ConnSup和AcceptorSup?
+    %% 因为子进程规范里面的第一个元素ConnSup就是上面启动的connection_sup进程, 放在这里是因为在acceptor接受到连接请求之
+    %% 后会调用ConnSup进程，让ConnSup进程来启动ClientPid， 同理，启动listener的之后，会让AcceptorSup启动几个Acceptor
+    %% 来处理连接。
     {ok, AcceptorSup} = supervisor:start_child(Sup,
                                                {acceptor_sup,
                                                 {esockd_acceptor_sup, start_link, [ConnSup, AcceptStatsFun, BufferTuneFun, Logger]},

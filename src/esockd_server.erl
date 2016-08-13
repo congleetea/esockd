@@ -59,6 +59,8 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% @doc New Stats Fun.
+%% 调用该函数会先给该服务进程发送init信号，新建一个ets表。
+%% 然后返回一个统计函数。
 -spec stats_fun({atom(), esockd:listen_on()}, atom()) -> fun().
 stats_fun({Protocol, ListenOn}, Metric) ->
     init_stats({Protocol, ListenOn}, Metric),
@@ -76,7 +78,7 @@ get_stats({Protocol, ListenOn}) ->
 -spec inc_stats({atom(), esockd:listen_on()}, atom(), pos_integer()) -> any().
 inc_stats({Protocol, ListenOn}, Metric, Num) when is_integer(Num) ->
     update_counter({{Protocol, ListenOn}, Metric}, Num).
-    
+
 %% @doc Dec Stats.
 -spec dec_stats({atom(), esockd:listen_on()}, atom(), pos_integer()) -> any().
 dec_stats({Protocol, ListenOn}, Metric, Num) when is_integer(Num) ->
@@ -84,6 +86,7 @@ dec_stats({Protocol, ListenOn}, Metric, Num) when is_integer(Num) ->
 
 %% @doc Update stats counter.
 %% @private
+%% 查找Key对应的记录，第2个字段值增加Num.
 update_counter(Key, Num) ->
     ets:update_counter(?STATS_TAB, Key, {2, Num}).
 
@@ -100,11 +103,11 @@ del_stats({Protocol, ListenOn}) ->
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
-
+%% 初始化的时候新建一个ets表来保存协议端口信息。
 init([]) ->
     ets:new(?STATS_TAB, [set, public, named_table, {write_concurrency, true}]),
     {ok, #state{}}.
-
+%% 在启动一个listener的时后都会在ets表中添加一个记录 {{Protocol,ListenOn}, Metric}。
 handle_call({init, {Protocol, ListenOn}, Metric}, _From, State) ->
     Key = {{Protocol, ListenOn}, Metric},
     ets:insert(?STATS_TAB, {Key, 0}),
@@ -128,4 +131,3 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-

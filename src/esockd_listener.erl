@@ -57,18 +57,25 @@ start_link(Protocol, ListenOn, Options, AcceptorSup, Logger) ->
 %% conglistener0: 现在开始启动listener
 init({Protocol, ListenOn, Options, AcceptorSup, Logger}) ->
     Port = port(ListenOn),
+    %% 为什么这里也要设置trap_exit?
+    %% observer中看到该进程link了两个东西，一个是其父进程即listener_sup, 另一个是端口#Port<0.xxxx>
+    %% 父进程和listener有监督关系，而本进程不是监督进程，Port出问题会到时该进程挂掉，添加这个标志，端口的信号也会发送到这里来，
+    %% 并转化为无害消息被捕捉到, 这样，这个进程就不会被终止了。
+    %% TODO: 但是为什么不让它终止，有父进程再启动他呢？
     process_flag(trap_exit, true),
     %%Don't active the socket...
+    %% 设置端口的配置。
     %% {reuseaddr,true}表示多个实例可重用一个端口(比如关闭emqttd，端口会进入四次断开的流程，这个端口可能会稍晚一会才
     %% 关闭(socket状态会变为TIME_WAIT, 此时没有完全关闭)，如果此时重启emqttd，该参数若为false，就会提示端口被占用).
     %% 如果被设置为true，则当linux内核返回TIME_WAIT的时候就可以复用监听.
     SockOpts = merge_addr(ListenOn, proplists:get_value(sockopts, Options, [{reuseaddr, true}])),
+    %% 注意这里使用的是{active, false}, 也不是{active,once}.
     %% {active,false}将socket设置为被动接收，这样不会出现大量连接一下子压过来，服务器处理速度分不上的情况.
     %% conglistener1: 设置好socket的配置，esockd_transport:listen调用gen_tcp:listen(Port, SockOpts)监听端口.
     case esockd_transport:listen(Port, [{active, false} | proplists:delete(active, SockOpts)]) of
         %% 返回监听Socket，这个socket是不能断开的，断开客户端就无法连接了。
         {ok, LSock} ->
-            %% 带上ssl证书和秘钥,将tcp变为ssl(如果ssl有配置).
+            %% 带上ssl证书和秘钥,将tcp升级为ssl(如果ssl有配置).
             SockFun = esockd_transport:ssl_upgrade_fun(proplists:get_value(ssl, Options)),
             %% acceptor_pool有emqttdlistener中配置.
             AcceptorNum = proplists:get_value(acceptors, Options, ?ACCEPTOR_POOL),

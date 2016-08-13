@@ -77,8 +77,8 @@ init({ConnSup, AcceptStatsFun, BufferTuneFun, Logger, LSock, SockFun}) ->
     {ok, #state{lsock    = LSock,
                 sockfun  = SockFun,
                 tunefun  = BufferTuneFun,
-                sockname = esockd_net:format(sockname, SockName),
-                conn_sup = ConnSup,
+                sockname = esockd_net:format(sockname, SockName), % 把socket表示成IP:Port的形式.
+                conn_sup = ConnSup,             % 保留这个参数是为了在handle_info中通过ConnSup启动clinetPid.
                 statsfun = AcceptStatsFun,
                 logger   = Logger}}.
 
@@ -105,15 +105,18 @@ handle_info({inet_async, LSock, Ref, {ok, Sock}}, State = #state{lsock    = LSoc
     %% patch up the socket so it looks like one we got from gen_tcp:accept/1
     %% 修补socket，使其看起来像是从gen_tcp:accept/1得到的一样.
     {ok, Mod} = inet_db:lookup_socket(LSock),   % {ok, inet_tcp}
+    %% 注册socket的module。
+    %% TODO: 目的是什么?
     inet_db:register_socket(Sock, Mod),
 
     %% accepted stats.
     %% AcceptStatsFun is esockd_server:stats_fun({Protocol, ListenOn}, accepted), 统计socket数量+1
+    %% 表示该类acceptor得到了多少个连接。
     AcceptStatsFun({inc, 1}),
 
     %% Fix issues#9: enotconn error occured...
     %% {ok, Peername} = inet:peername(Sock),
-    %% Logger:info("~s - Accept from ~s", [SockName, esockd_net:format(peername, Peername)]),
+    %% Logger:error("~s - Accept from ~s", [SockName, esockd_net:format(peername, Peername)]),
     case BufferTuneFun(Sock) of                 % 调整客户端socket的buffer大小.
         ok ->
             %% conglistener6: 该acceptor抢到连接之后，启动一个esockd_connection进程，把socket控制权交给它,

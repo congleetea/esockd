@@ -77,7 +77,6 @@ start_link(Options, MFArgs, Logger) ->
 %% conglistener7: 同步创建一个esockd_connection，esockd_acceptor会等待启动成功与否的结果.
 %% jump to handle_call
 start_connection(Sup, Mod, Sock, SockFun) ->
-    lager:info("~n~p:~p:self()=~p~n", [?MODULE, ?LINE, self()]), % 这个Pid应该是acceptor的Pid.
     case call(Sup, {start_connection, Sock, SockFun}) of
         {ok, Pid, Conn} ->
             lager:info("~n~p:~p:Pid=~p~n", [?MODULE, ?LINE, Pid]), % 这个Pid才是connection的Pid.
@@ -131,7 +130,6 @@ init([Options, MFArgs, Logger]) ->
     Shutdown    = proplists:get_value(shutdown, Options, brutal_kill),
     MaxClients  = proplists:get_value(max_clients, Options, ?MAX_CLIENTS),
     ConnOpts    = proplists:get_value(connopts, Options, []),
-    lager:error("~n~p:~p:ConnOpts=~p~n", [?MODULE, ?LINE, ConnOpts]),
     RawRules    = proplists:get_value(access, Options, [{allow, all}]),
     AccessRules = [esockd_access:compile(Rule) || Rule <- RawRules],
     {ok, #state{max_clients  = MaxClients,

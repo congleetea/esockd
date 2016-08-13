@@ -65,7 +65,7 @@ count_acceptors(AcceptorSup) ->
 %%%-----------------------------------------------------------------------------
 %%% Supervisor callbacks
 %%%-----------------------------------------------------------------------------
-
+%% simple_one_for_one类型的supervisor，在启动supervisor的时候不会启动子进程。
 init([ConnSup, AcceptStatsFun, BufferTuneFun, Logger]) ->
     {ok, {{simple_one_for_one, 1000, 3600},
           [{acceptor, {esockd_acceptor, start_link, [ConnSup, AcceptStatsFun, BufferTuneFun, Logger]},

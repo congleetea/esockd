@@ -226,13 +226,15 @@ shutdown(#ssl_socket{ssl = SslSock}, How) ->
     ssl:shutdown(SslSock, How).
 
 %% @doc Function that upgrade socket to sslsocket
+%% 将tcp/ip升级为ssl连接：http://erlang.org/doc/apps/ssl/using_ssl.html
 ssl_upgrade_fun(undefined) ->
     fun(Sock) when is_port(Sock) -> {ok, Sock} end;
 
 ssl_upgrade_fun(SslOpts) ->
     Timeout = proplists:get_value(handshake_timeout, SslOpts, ?SSL_HANDSHAKE_TIMEOUT), % 设置ssl握手超时时间.
     SslOpts1 = proplists:delete(handshake_timeout, SslOpts),
-    fun(Sock) when is_port(Sock) ->             % 返回一个函数, 函数执行ssl服务端的握手，返回一个record，包含tcp/ssl的socket
+    %% (闭包) 返回一个函数, 函数执行ssl服务端的握手，返回一个record，包含tcp/ssl的socket
+    fun(Sock) when is_port(Sock) ->
         case catch ssl:ssl_accept(Sock, SslOpts1, Timeout) of % Performs the SSL/TLS server-side handshake.
             {ok, SslSock} ->
                 {ok, #ssl_socket{tcp = Sock, ssl = SslSock}};
