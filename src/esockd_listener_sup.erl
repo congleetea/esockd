@@ -58,7 +58,8 @@ start_link(Protocol, ListenOn, Options, MFArgs) ->
     %% 但是又要实现supervisor的功能，所以在使用spawn_link把子进程和supervisor 链接起来，同时要让supervisor(connection_sup)捕捉EXIT
     %% 消息，于是在启动connection_sup的时候设置了process_flag(trap_exit, true), 这样connection_sup接受到子进程发送的exit退出消息的时候
     %% 会自动转化为{'EXIT', FromPid, Reason}的无害信号，否则没有trap_exit的设置，父进程也会跟着子进程挂掉。
-    %% 2) 在参数中带了MFArgs参数，这个是用来启动connection_sup下的子进程的。
+    %% 2) 在参数中带了MFArgs参数，这个是用来启动connection_sup下的子进程的, 注意MFArgs是在这个启动connection_sup的时候放在connection_sup
+    %% 的状态#state里面的。
     {ok, ConnSup} = supervisor:start_child(Sup,
                                            {connection_sup,
                                             {esockd_connection_sup, start_link, [Options, MFArgs, Logger]},
@@ -82,6 +83,11 @@ start_link(Protocol, ListenOn, Options, MFArgs) ->
                                              {listener,
                                               {esockd_listener, start_link, [Protocol, ListenOn, Options, AcceptorSup, Logger]},
                                               transient, 16#ffffffff, worker, [esockd_listener]}),
+    %% 总结一些上面的启动顺序：connection_sup --> acceptor_sup --> listener --->+
+    %%                         |(#state{mfa})          |                        |
+    %%                         |                       +<--call acceptor_sup----+
+    %%                         |                       |
+    %%               ClientPid <--call connection_sup--+acceptor
     {ok, Sup}.
 
 %% @doc Get connection supervisor.
