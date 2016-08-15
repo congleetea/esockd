@@ -75,7 +75,7 @@ init({ConnSup, AcceptStatsFun, BufferTuneFun, Logger, LSock, SockFun}) ->
     %% 去从监听socket(LSock)那里抢客户端连接一样(众多的acceptor去从端口抢)。
     gen_server:cast(self(), accept),
     {ok, #state{lsock    = LSock,
-                sockfun  = SockFun,
+                sockfun  = SockFun,             % SockFun = esockd_transport:ssl_upgrade_fun(proplists:get_value(ssl, Options)),
                 tunefun  = BufferTuneFun,
                 sockname = esockd_net:format(sockname, SockName), % 把socket表示成IP:Port的形式.
                 conn_sup = ConnSup,             % 保留这个参数是为了在handle_info中通过ConnSup启动clinetPid.
@@ -94,7 +94,7 @@ handle_cast(_Msg, State) ->
 %% conglistener5: accept到客户端的socket连接, 然后启动一个esockd_connection子进程(受监督于esockd_connnection_sup)，
 %% 最后会把这个socket的控制权从acceptor转走，这样这个acceptor就腾出来处理其他的客户端连接了.
 handle_info({inet_async, LSock, Ref, {ok, Sock}}, State = #state{lsock    = LSock,
-                                                                 sockfun  = SockFun,
+                                                                 sockfun  = SockFun, % SockFun = esockd_transport:ssl_upgrade_fun(proplists:get_value(ssl, Options)),
                                                                  tunefun  = BufferTuneFun,
                                                                  sockname = SockName,
                                                                  conn_sup = ConnSup,
@@ -126,7 +126,7 @@ handle_info({inet_async, LSock, Ref, {ok, Sock}}, State = #state{lsock    = LSoc
             %% jump.....
             %% TODO: Mod=inet_tcp,
             %% Sock 是连接socket
-            %% SockFun处理ssl相关信息。
+            %% SockFun处理ssl相关信息,SockFun = esockd_transport:ssl_upgrade_fun(proplists:get_value(ssl, Options))
             case esockd_connection_sup:start_connection(ConnSup, Mod, Sock, SockFun) of
                 {ok, _Pid}        -> ok;
                 {error, enotconn} -> catch port_close(Sock); %% quiet...issue #10

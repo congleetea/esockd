@@ -111,9 +111,10 @@ wait(Conn = ?CONN_MOD) ->
 %%      Called by connection proccess.
 %% @end
 %% 为什么要upgrade？
+%% upgrade将连接升级为ssl. SockFun 是
 -spec upgrade(connection()) -> {ok, connection()}.
 upgrade({?MODULE, [Sock, SockFun, Opts]}) ->
-    case SockFun(Sock) of
+    case SockFun(Sock) of    %% SockFun = esockd_transport:ssl_upgrade_fun(proplists:get_value(ssl, Options))
         {ok, NewSock} ->
             {ok, {?MODULE, [NewSock, SockFun, Opts]}};
         {error, Error} ->
