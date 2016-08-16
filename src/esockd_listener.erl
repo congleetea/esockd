@@ -61,7 +61,6 @@ init({Protocol, ListenOn, Options, AcceptorSup, Logger}) ->
     %% observer中看到该进程link了两个东西，一个是其父进程即listener_sup, 另一个是端口#Port<0.xxxx>
     %% 父进程和listener有监督关系，而本进程不是监督进程，Port出问题会到时该进程挂掉，添加这个标志，端口的信号也会发送到这里来，
     %% 并转化为无害消息被捕捉到, 这样，这个进程就不会被终止了。
-    %% TODO: 但是为什么不让它终止，有父进程再启动他呢？
     process_flag(trap_exit, true),
     %%Don't active the socket...
     %% 设置端口的配置。

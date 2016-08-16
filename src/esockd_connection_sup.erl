@@ -155,7 +155,7 @@ handle_call({start_connection, Sock, SockFun}, _From,
                 true ->
                     %% new返回{esockd_connection, [Sock, SockFun, parse_opt(Opts)]}一个带状态的模块.
                     Conn = esockd_connection:new(Sock, SockFun, ConnOpts),
-                    %% 实际调用的是esockd_connection:start_link(MFArgs, {esockd_connection,[Sock,SockFun,NewOpts]})
+                    %% 实际调用的是 esockd_connection:start_link(MFArgs, {esockd_connection,[Sock,SockFun,NewOpts]})
                     %% for mqtt(s):{emqttd_client,start_link, Opts}
                     %% for http(s):{mochiweb_http,start_link,[{emqttd_http,handle_request,[]}]}
                     case catch Conn:start_link(MFArgs) of
